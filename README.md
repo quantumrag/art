@@ -1,17 +1,21 @@
-art
-====
-A simple implementation of Adaptive Radix Tree (ART) in Go. Created for use in personal projects like [FlashDB](https://github.com/arriqaaq/flashdb).
+# art
+A compact, in-memory **Adaptive Radix Tree (ART)** implementation in Go.
 
-About
-=====
-- An adaptive radix tree (trie) is useful for efficient indexing in main memory. 
-- Its lookup performance surpasses highly tuned, read-only search trees, while supporting very efficient insertions and deletions as well. 
-- Space efficient and solves the problem of excessive worst-case space consumption, which plagues most radix trees, by adaptively choosing compact and efficient data structures for internal nodes. 
-- Maintains the data in sorted order, which enables additional operations like range scan and prefix lookup.
+This repo is a small ART/trie intended for fast lookups with efficient inserts/deletes, while keeping keys in sorted order (useful for iteration and prefix scans).
 
+## Features
+- Insert / search / delete
+- Pre-order traversal via callback
+- Iterator API
+- Prefix scan (`Scan`) for keys under a prefix
+- Adaptive node sizes (Node4/Node16/Node48/Node256)
 
-# Usage
+## Install
+```bash
+go get github.com/arriqaaq/art
+```
 
+## Usage
 ```go
 package main
 
@@ -26,31 +30,24 @@ func main() {
 
 	// Insert
 	tree.Insert([]byte("hello"), "world")
-	value := tree.Search([]byte("hello"))
-	fmt.Println("value=", value)
+	fmt.Println("value=", tree.Search([]byte("hello")))
 
 	// Delete
-	tree.Insert([]byte("wonderful"), "life")
 	tree.Insert([]byte("foo"), "bar")
-	deleted := tree.Delete([]byte("foo"))
-	fmt.Println("deleted=", deleted)
+	fmt.Println("deleted=", tree.Delete([]byte("foo")))
 
-	// Search
-	value = tree.Search([]byte("hello"))
-	fmt.Println("value=", value)
-
-	// Traverse (with callback function)
-	tree.Each(func(node *art.Node) {
-		if node.IsLeaf() {
-			fmt.Println("value=", node.Value())
+	// Traverse (callback)
+	tree.Each(func(n *art.Node) {
+		if n.IsLeaf() {
+			fmt.Println("key=", string(n.Key()), "value=", n.Value())
 		}
 	})
 
 	// Iterator
 	for it := tree.Iterator(); it.HasNext(); {
-		value := it.Next()
-		if value.IsLeaf() {
-			fmt.Println("value=", value.Value())
+		n := it.Next()
+		if n.IsLeaf() {
+			fmt.Println("key=", string(n.Key()), "value=", n.Value())
 		}
 	}
 
@@ -58,51 +55,55 @@ func main() {
 	tree.Insert([]byte("api"), "bar")
 	tree.Insert([]byte("api.com"), "bar")
 	tree.Insert([]byte("api.com.xyz"), "bar")
-	leafFilter := func(n *art.Node) {
+
+	tree.Scan([]byte("api"), func(n *art.Node) {
 		if n.IsLeaf() {
-			fmt.Println("value=", string(n.Key()))
+			fmt.Println("match=", string(n.Key()))
 		}
-	}
-	tree.Scan([]byte("api"), leafFilter)
+	})
 }
 ```
 
-# Benchmarks
+## API notes
+- `tree.Insert(key, value) bool` returns `true` if an existing key was updated, `false` if a new key was inserted.
+- `tree.Search(key) interface{}` returns the stored value or `nil` if not found.
+- `tree.Delete(key) bool` returns `true` if a key was removed.
+- Leaf nodes expose:
+  - `n.Key() []byte` (the key for leaf nodes)
+  - `n.Value() interface{}` (the value for leaf nodes)
 
-Benchmarks are run by inserting a dictionary of 235886 words into each tree.
+### Key limitation
+This implementation internally appends a `0x00` terminator to keys that do not already contain one.
 
-```go
-goos: darwin
-goarch: amd64
-pkg: github.com/arriqaaq/art
-cpu: Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz
+Practically: **treat keys as byte strings that must not contain `0x00` bytes**.
 
-// ART tree
-BenchmarkWordsArtTreeInsert
-BenchmarkWordsArtTreeInsert-16   14	  79622476 ns/op  46379858 B/op	 1604123 allocs/op
-BenchmarkWordsArtTreeSearch
-BenchmarkWordsArtTreeSearch-16   43	  28123512 ns/op         0 B/op	       0 allocs/op
-BenchmarkUUIDsArtTreeInsert
-BenchmarkUUIDsArtTreeInsert-16   20	  56691374 ns/op  20404504 B/op	  602400 allocs/op
-BenchmarkUUIDsArtTreeSearch
-BenchmarkUUIDsArtTreeSearch-16   34	  32183846 ns/op         0 B/op	       0 allocs/op
-
-// Radix tree
-BenchmarkWordsRadixInsert
-BenchmarkWordsRadixInsert-16     12	  96886770 ns/op  50057340 B/op	 1856741 allocs/op
-BenchmarkWordsRadixSearch
-BenchmarkWordsRadixSearch-16     33	  40109553 ns/op         0 B/op	       0 allocs/op
-
-// Skiplist
-BenchmarkWordsSkiplistInsert
-BenchmarkWordsSkiplistInsert-16   4	 271771239 ns/op  32366958 B/op	 1494019 allocs/op
-BenchmarkWordsSkiplistSearch
-BenchmarkWordsSkiplistSearch-16   8	 135836216 ns/op         0 B/op	       0 allocs/op
+## Tests
+```bash
+go test ./...
 ```
 
-# References
+## Benchmarks
+Benchmarks use the fixtures in `test/words.txt` and `test/uuid.txt`.
 
-- [The Adaptive Radix Tree: ARTful Indexing for Main-Memory Databases (Specification)](http://www-db.in.tum.de/~leis/papers/ART.pdf)
-- [Kelly Dunn implementation of the Adaptive Radix Tree](https://github.com/kellydunn/go-art)
+Run:
+```bash
+go test -bench . -benchmem
+```
+
+Example output (will vary by machine):
+```text
+// ART tree
+BenchmarkWordsArtTreeInsert
+BenchmarkWordsArtTreeSearch
+BenchmarkUUIDsArtTreeInsert
+BenchmarkUUIDsArtTreeSearch
+```
+
+## References
+- [The Adaptive Radix Tree: ARTful Indexing for Main-Memory Databases (paper)](http://www-db.in.tum.de/~leis/papers/ART.pdf)
+- [Kelly Dunn's Go ART implementation](https://github.com/kellydunn/go-art)
 - [Beating hash tables with trees? The ART-ful radix trie](https://www.the-paper-trail.org/post/art-paper-notes/)
-- [Pavel Larkin implementation of ART](https://github.com/plar/go-adaptive-radix-tree)
+- [Pavel Larkin's Go ART implementation](https://github.com/plar/go-adaptive-radix-tree)
+
+## License
+MIT (see `LICENSE`).
